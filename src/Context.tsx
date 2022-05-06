@@ -1,10 +1,15 @@
-import React, { createContext, PropsWithChildren, RefObject, useRef } from "react";
+import React, { ChangeEvent, createContext, EventHandler, PropsWithChildren, useRef, useState } from "react";
 import {io} from "socket.io-client";
 import Peer from "peerjs";
 import { v4 as uuidV4 } from 'uuid'
 import axios from "axios";
 import { useSnackbar } from 'notistack';
-import { rejects } from "assert";
+import { TextFieldProps } from "@mui/material";
+
+interface user {
+    userId: string;
+    userName: string;
+}
 
 const userId = uuidV4();
 const URL = {
@@ -18,6 +23,7 @@ let socket = io(`${URL.WS}`, {
 });
 const peer = new Peer(userId, {
     host: `${process.env.REACT_APP_PEER_URL}`,
+    port: 8848,
     path: `${process.env.REACT_APP_PATH}/peer`,
     config: {
         'iceServers': [
@@ -34,11 +40,11 @@ export const socketContext = createContext({});
 
 export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
 
-    const [localMuted, setLocalMuted] = React.useState(false);
-    const [remoteMuted, setRemoteMuted] = React.useState(false);
-    const [joined, setJoined] = React.useState(false);
-    const [roomId, setRoomId] = React.useState('');
-    const [userName, setUserName] = React.useState('');
+    const [localMuted, setLocalMuted] = useState(false);
+    const [remoteMuted, setRemoteMuted] = useState(false);
+    const [joined, setJoined] = useState(false);
+    const [roomId, setRoomId] = useState('');
+    const [userList, setUserList] = useState<Array<user>>([]);
 
     const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -65,49 +71,93 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
         });
     }
 
-    const join = (roomId: string): Promise<void> => {
+    const join = (roomId: string, userName: string): Promise<void> => {
         return new Promise((resolve, _reject) => {
-            getPermissions().then(() => {
-                axios.post(`${URL.HTTP}/join`, {
-                    roomId: roomId,
-                    userId: userId,
-                    userName: userName
-                }).then(res => {
-                    if (res.data.status === 'success') {
-                        setRoomId(roomId);
-                        setJoined(true);
-                        startListener();
-                        resolve();
-                    } else {
-                        enqueueSnackbar(res.data.content, {
-                            variant: 'error',
-                            anchorOrigin: {
-                                vertical: 'bottom',
-                                horizontal: 'center',
-                            }
-                        });
-                        resolve();
+            let errMsg: string = '';
+            if (roomId.length === 0) {
+                errMsg = '房间号不能为空';
+            } else if (roomId.length > 10) {
+                errMsg = '房间号过长';
+            } else if (userName.length === 0) {
+                errMsg = '昵称不能为空';
+            } else if (userName.length > 10) {
+                errMsg = '昵称过长';
+            }
+
+            if (errMsg.length > 0) {
+                enqueueSnackbar(errMsg, {
+                    variant: 'error',
+                    anchorOrigin: {
+                        vertical: 'bottom',
+                        horizontal: 'center',
                     }
+                });
+                resolve();
+            } else {
+                getPermissions().then(() => {
+                    axios.post(`${URL.HTTP}/join`, {
+                        roomId: roomId,
+                        userId: userId,
+                        userName: userName
+                    }).then(res => {
+                        if (res.data.status === 'success') {
+                            localStorage.setItem('userName', userName);
+                            setRoomId(roomId);
+                            getUserList();
+                            setJoined(true);
+                            startListener();
+                            resolve();
+                        } else {
+                            enqueueSnackbar(res.data.content, {
+                                variant: 'error',
+                                anchorOrigin: {
+                                    vertical: 'bottom',
+                                    horizontal: 'center',
+                                }
+                            });
+                            resolve();
+                        }
+                    })
                 })
-            })
+            }
         })
     }
 
-    const create = (): Promise<void> => {
+    const create = (userName: string): Promise<void> => {
         return new Promise((resolve, _reject) => {
-            getPermissions().then(() => {
-                axios.post(`${URL.HTTP}/create`, {
-                    userId: userId,
-                    userName: userName
-                }).then(res => {
-                    if (res.data.status === 'success') {
-                        setRoomId(res.data.content);
-                        setJoined(true);
-                        startListener();
-                        resolve();
+            let errMsg: string = '';
+            if (userName.length === 0) {
+                errMsg = '昵称不能为空';
+            } else if (userName.length > 10) {
+                errMsg = '昵称过长';
+            }
+
+            if (errMsg.length > 0) {
+                enqueueSnackbar(errMsg, {
+                    variant: 'error',
+                    anchorOrigin: {
+                        vertical: 'bottom',
+                        horizontal: 'center',
                     }
+                });
+                resolve();
+            } else {
+                getPermissions().then(() => {
+                    axios.post(`${URL.HTTP}/create`, {
+                        userId: userId,
+                        userName: userName
+                    }).then(res => {
+                        if (res.data.status === 'success') {
+                            localStorage.setItem('userName', userName);
+                            setRoomId(res.data.content);
+                            getUserList();
+                            setJoined(true);
+                            startListener();
+                            resolve();
+                        }
+                    })
                 })
-            })
+            }
         })
     }
 
@@ -118,11 +168,12 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
 
         socket.on('user-leave', userId => {
             console.log(`${userId} has leaved`);
-            // connectTo(userId, stream);
+            getUserList();
         })
     }
 
     const call = (userId: string) => {
+        getUserList();
         console.log(`${userId} joined`);
         console.log(`Calling ${userId}`);
         const call = peer.call(userId, localStream.current!);
@@ -136,6 +187,7 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
     }
 
     const answer = (call: Peer.MediaConnection) => {
+        getUserList();
         console.log('call incoming');
         call.answer(localStream.current);
         call.on('stream', stream => {
@@ -147,12 +199,32 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
         })
     }
 
+    const getUserList = () => {
+        setRoomId(roomId => {
+            axios.get(`${URL.HTTP}/getUsers`, {
+                params: {
+                    roomId: roomId
+                }
+            }).then(res => {
+                if (res.data.status === 'success') {
+                    setUserList(res.data.content);
+                } else {
+                    enqueueSnackbar(res.data.content, {
+                        variant: 'error',
+                        anchorOrigin: {
+                            vertical: 'bottom',
+                            horizontal: 'center',
+                        }
+                    });
+                }
+            })
+            return roomId;
+        })
+    }
+
     const toggleLocalMute = () => {
-        console.log('toggle local mute');
-        console.log(audioRef.current?.paused);
         if (localStream.current) {
             localStream.current.getAudioTracks().forEach(track => {
-                console.log(track.enabled);
                 if (track.enabled) {
                     track.enabled = false;
                     setLocalMuted(true);
@@ -165,7 +237,6 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
     }
 
     const toggleRemoteMute = () => {
-        console.log(remoteStream.current.getTracks());
         if (remoteMuted) {
             audioRef.current!.muted = false;
             setRemoteMuted(false);
@@ -185,9 +256,8 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
             create,
             toggleLocalMute,
             toggleRemoteMute,
-            userName,
-            setUserName,
-            audioRef
+            audioRef,
+            userList
         }}>
             {children}
         </socketContext.Provider>

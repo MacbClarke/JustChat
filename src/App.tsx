@@ -1,30 +1,32 @@
-import React, {useContext, useState} from 'react';
+import React, { useContext, useState} from 'react';
 import './App.css';
-import {Box, Button, Container, CssBaseline, Stack, TextField, ToggleButton, Typography} from "@mui/material";
-import {Add, Login, Mic, MicOff, VolumeOff, VolumeUp} from "@mui/icons-material";
+import {Avatar, Box, Button, Container, CssBaseline, Divider, List, ListItem, ListItemAvatar, ListItemText, Stack, TextField, ToggleButton, Tooltip, Typography} from "@mui/material";
+import {Add, Login, Mic, MicOff, Person, VolumeOff, VolumeUp} from "@mui/icons-material";
 import { socketContext } from './Context';
+import { useSnackbar } from 'notistack';
 
 interface IProps {
     localMuted?: boolean;
     remoteMuted?: boolean;
     joined?: boolean;
     roomId?: string;
-    join?: (roomId: string) => void;
-    create?: () => void;
+    join?: (roomId: string, userName: string) => void;
+    create?: (userName: string) => void;
     toggleLocalMute?: () => void;
     toggleRemoteMute?: () => void;
-    userName?: string;
-    setUserName?: (userName: string) => void;
     audioRef?: React.RefObject<HTMLAudioElement>;
+    userList?: any;
 }
 
 function App() {
 
-    const {join, create, roomId, audioRef, joined, localMuted, remoteMuted, toggleLocalMute, toggleRemoteMute}: IProps = useContext(socketContext);
+    const {join, create, roomId, audioRef, joined, localMuted, remoteMuted, toggleLocalMute, toggleRemoteMute, userList}: IProps = useContext(socketContext);
+    const { enqueueSnackbar } = useSnackbar();
 
     function Home() { 
 
         const [inputRoomId, setInputRoomId] = useState('');
+        const [inputUserName, setInputUserName] = useState(localStorage.getItem('userName') || '');
 
         return (
             <Container component="main" maxWidth="xs" >
@@ -34,25 +36,42 @@ function App() {
                     flexDirection: 'column',
                     alignItems: 'center'
                 }} >
+                    <Typography sx={{mb: 1, mt: 2}} variant="h4">
+                        填写昵称
+                    </Typography>
+                    <TextField sx={{
+                        mb: 2
+                    }} error={inputUserName === ''} onChange={(e) => setInputUserName!(e.target.value)} value={inputUserName} variant="standard" label="昵称" />
+                    <Divider sx={{
+                        width: 1,
+                        mt: 3,
+                        mb: 3
+                    }}>然后</Divider>
+                    
                     <Typography sx={{mb: 2}} variant="h4">
                         加入房间
                     </Typography>
                     <Stack direction="row" spacing={1}>
-                        <TextField onChange={(e) => setInputRoomId(e.target.value)} label="房间号" />
-                        <Button onClick={() => join!(inputRoomId)} variant="contained">
+                        <TextField onChange={(e) => setInputRoomId(e.target.value)} value={inputRoomId} label="房间号" />
+                        <Button onClick={() => join!(inputRoomId, inputUserName)} variant="contained">
                             <Login />
                         </Button>
                     </Stack>
-                    <Typography sx={{
+                    {/* <Typography sx={{
                         mt: 3,
                         mb: 3
                     }} variant="h6">
                         或
-                    </Typography>
+                    </Typography> */}
+                    <Divider sx={{
+                        width: 1,
+                        mt: 3,
+                        mb: 3
+                    }}>或</Divider>
                     <Typography sx={{mb: 2}} variant="h4">
                         创建房间
                     </Typography>
-                    <Button onClick={() => create!()} size="large" variant="contained">
+                    <Button onClick={() => create!(inputUserName)} size="large" variant="contained">
                         <Add />
                     </Button>
                 </Box>
@@ -61,6 +80,17 @@ function App() {
     }
     
     function Room() {
+
+        const [showTip, setShowTip] = useState(false);
+
+        function copyRoomId() {
+            navigator.clipboard.writeText(roomId!);
+            setShowTip(true);
+            setTimeout(() => {
+                setShowTip(false);
+            }, 1000)
+        }
+
         return (
             <Container component="main" maxWidth="xs" >
                 <CssBaseline />
@@ -72,9 +102,23 @@ function App() {
                     <Typography sx={{mb: 2}} variant="h4">
                         房间号
                     </Typography>
-                    <Typography sx={{mb: 2}} variant="h4">
+                        <Tooltip
+                            sx={{mb: 2, cursor: 'pointer'}}
+                            open={showTip}
+                            disableFocusListener
+                            disableHoverListener
+                            disableTouchListener
+                            title="已复制"
+                            placement='right'
+                            onClick={copyRoomId}
+                        >
+                            <Typography variant="h4">
+                                {roomId!.slice(0,3)} {roomId!.slice(3)}
+                            </Typography>
+                        </Tooltip>
+                    {/* <Typography sx={{mb: 2}} variant="h4">
                         {roomId!.slice(0,3)} {roomId!.slice(3)}
-                    </Typography>
+                    </Typography> */}
                     <Stack direction="row" spacing={1}>
                         <ToggleButton value="local" color="error" selected={localMuted} onClick={toggleLocalMute}>
                             {localMuted? <MicOff /> : <Mic />}
@@ -83,6 +127,20 @@ function App() {
                             {remoteMuted? <VolumeOff /> : <VolumeUp />}
                         </ToggleButton>
                     </Stack>
+                    <List>
+                        {
+                            userList!.map((user: any, index: any) => (
+                                <ListItem key={index}>
+                                    <ListItemAvatar>
+                                        <Avatar>
+                                            <Person />
+                                        </Avatar>
+                                    </ListItemAvatar>
+                                    <ListItemText primary={user.userName} />
+                                </ListItem>
+                            ))
+                        }
+                    </List>
                 </Box>
             </Container>
         );
