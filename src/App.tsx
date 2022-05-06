@@ -1,7 +1,7 @@
-import React, {useContext, useEffect, useRef, useState} from 'react';
+import React, {useContext, useState} from 'react';
 import './App.css';
-import {Alert, Box, Button, Container, CssBaseline, Divider, Stack, TextField, Typography} from "@mui/material";
-import {Add, Login} from "@mui/icons-material";
+import {Box, Button, Container, CssBaseline, Stack, TextField, ToggleButton, Typography} from "@mui/material";
+import {Add, Login, Mic, MicOff, VolumeOff, VolumeUp} from "@mui/icons-material";
 import { socketContext } from './Context';
 
 interface IProps {
@@ -20,7 +20,7 @@ interface IProps {
 
 function App() {
 
-    const {join, create, roomId, audioRef, joined}: IProps = useContext(socketContext);
+    const {join, create, roomId, audioRef, joined, localMuted, remoteMuted, toggleLocalMute, toggleRemoteMute}: IProps = useContext(socketContext);
 
     function Home() { 
 
@@ -61,7 +61,7 @@ function App() {
     }
     
     function Room() {
-       return (
+        return (
             <Container component="main" maxWidth="xs" >
                 <CssBaseline />
                 <Box sx={{
@@ -75,7 +75,14 @@ function App() {
                     <Typography sx={{mb: 2}} variant="h4">
                         {roomId!.slice(0,3)} {roomId!.slice(3)}
                     </Typography>
-                    <audio autoPlay ref={audioRef!}/>
+                    <Stack direction="row" spacing={1}>
+                        <ToggleButton value="local" color="error" selected={localMuted} onClick={toggleLocalMute}>
+                            {localMuted? <MicOff /> : <Mic />}
+                        </ToggleButton>
+                        <ToggleButton value="remote" color="error" selected={remoteMuted} onClick={toggleRemoteMute}>
+                            {remoteMuted? <VolumeOff /> : <VolumeUp />}
+                        </ToggleButton>
+                    </Stack>
                 </Box>
             </Container>
         );
@@ -87,6 +94,7 @@ function App() {
             {
                 joined ? <Room /> : <Home />
             }
+            <audio hidden autoPlay ref={audioRef!}/>
         </div>
     );
 }

@@ -1,4 +1,4 @@
-import React, { createContext, PropsWithChildren } from "react";
+import React, { createContext, PropsWithChildren, RefObject, useRef } from "react";
 import {io} from "socket.io-client";
 import Peer from "peerjs";
 import { v4 as uuidV4 } from 'uuid'
@@ -34,27 +34,29 @@ export const socketContext = createContext({});
 
 export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
 
-    const [localStream, setLocalStream] = React.useState<MediaStream>();
     const [localMuted, setLocalMuted] = React.useState(false);
-    const [remoteStream, setRemoteStream] = React.useState<MediaStream>(new MediaStream());
     const [remoteMuted, setRemoteMuted] = React.useState(false);
     const [joined, setJoined] = React.useState(false);
     const [roomId, setRoomId] = React.useState('');
-    // const [errMsg, setErrMsg] = React.useState('');
     const [userName, setUserName] = React.useState('');
 
-    const audioRef = React.useRef<HTMLAudioElement>(null);
+    const audioRef = useRef<HTMLAudioElement>(null);
 
     const { enqueueSnackbar } = useSnackbar();
 
+    const localStream = useRef<MediaStream>();
+    const remoteStream = useRef<MediaStream>(new MediaStream());
+
     const getPermissions = (): Promise<void> => {
         return new Promise((resolve, _reject) => {
-            if (!localStream) {
+            if (!localStream.current) {
                 navigator.mediaDevices.getUserMedia({
                     video: false,
                     audio: true
                 }).then(stream => {
-                    setLocalStream(stream);
+                    if (localStream != null) {
+                        localStream.current = stream;
+                    }
                     resolve();
                 })
             } else {
@@ -123,37 +125,34 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
     const call = (userId: string) => {
         console.log(`${userId} joined`);
         console.log(`Calling ${userId}`);
-        setLocalStream((localStream) => {
-            const call = peer.call(userId, localStream!);
-            call.on('stream', stream => {
-                console.log(`call established`);
-                stream.getAudioTracks().forEach(track => {
-                    remoteStream.addTrack(track);
-                    audioRef.current!.srcObject = remoteStream;
-                })
+        const call = peer.call(userId, localStream.current!);
+        call.on('stream', stream => {
+            console.log(`call established`);
+            stream.getAudioTracks().forEach(track => {
+                remoteStream.current.addTrack(track);
+                audioRef.current!.srcObject = remoteStream.current;
             })
-            return localStream;
         })
     }
 
     const answer = (call: Peer.MediaConnection) => {
         console.log('call incoming');
-        setLocalStream((localStream) => {
-            call.answer(localStream);
-            call.on('stream', stream => {
-                console.log("income call established");
-                stream.getAudioTracks().forEach(track => {
-                    remoteStream.addTrack(track);
-                    audioRef.current!.srcObject = remoteStream;
-                })
+        call.answer(localStream.current);
+        call.on('stream', stream => {
+            console.log("income call established");
+            stream.getAudioTracks().forEach(track => {
+                remoteStream.current.addTrack(track);
+                audioRef.current!.srcObject = remoteStream.current;
             })
-            return localStream;
         })
     }
 
     const toggleLocalMute = () => {
-        if (localStream) {
-            localStream.getAudioTracks().forEach(track => {
+        console.log('toggle local mute');
+        console.log(audioRef.current?.paused);
+        if (localStream.current) {
+            localStream.current.getAudioTracks().forEach(track => {
+                console.log(track.enabled);
                 if (track.enabled) {
                     track.enabled = false;
                     setLocalMuted(true);
@@ -166,16 +165,13 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
     }
 
     const toggleRemoteMute = () => {
-        if (remoteStream) {
-            remoteStream.getAudioTracks().forEach(track => {
-                if (track.enabled) {
-                    track.enabled = false;
-                    setRemoteMuted(true);
-                } else {
-                    track.enabled = true;
-                    setRemoteMuted(false);
-                }
-            });
+        console.log(remoteStream.current.getTracks());
+        if (remoteMuted) {
+            audioRef.current!.muted = false;
+            setRemoteMuted(false);
+        } else {
+            audioRef.current!.muted = true;
+            setRemoteMuted(true);
         }
     }
 
