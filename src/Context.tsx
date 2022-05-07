@@ -4,11 +4,23 @@ import Peer from "peerjs";
 import { v4 as uuidV4 } from 'uuid'
 import axios from "axios";
 import { useSnackbar } from 'notistack';
-import { TextFieldProps } from "@mui/material";
+import hark from 'hark';
 
 interface user {
     userId: string;
     userName: string;
+    stream?: MediaStream | null;
+    speaking: boolean;
+    muted: boolean;
+    deafen: boolean;
+}
+
+interface stateChange {
+    userId: string;
+    state: {
+        type: 'mute' | 'deafen',
+        flag: boolean
+    }
 }
 
 const userId = uuidV4();
@@ -23,7 +35,7 @@ let socket = io(`${URL.WS}`, {
 });
 const peer = new Peer(userId, {
     host: `${process.env.REACT_APP_PEER_URL}`,
-    port: 8848,
+    // port: 8848,
     path: `${process.env.REACT_APP_PATH}/peer`,
     config: {
         'iceServers': [
@@ -60,9 +72,7 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
                     video: false,
                     audio: true
                 }).then(stream => {
-                    if (localStream != null) {
-                        localStream.current = stream;
-                    }
+                    localStream.current = stream;
                     resolve();
                 })
             } else {
@@ -80,7 +90,7 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
                 errMsg = '房间号过长';
             } else if (userName.length === 0) {
                 errMsg = '昵称不能为空';
-            } else if (userName.length > 10) {
+            } else if (userName.length > 20) {
                 errMsg = '昵称过长';
             }
 
@@ -128,7 +138,7 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
             let errMsg: string = '';
             if (userName.length === 0) {
                 errMsg = '昵称不能为空';
-            } else if (userName.length > 10) {
+            } else if (userName.length > 20) {
                 errMsg = '昵称过长';
             }
 
@@ -163,21 +173,32 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
 
     const startListener = (): void => {
         peer.on('call', answer)
-
         socket.on('user-join', call)
-
-        socket.on('user-leave', userId => {
-            console.log(`${userId} has leaved`);
-            getUserList();
-        })
+        socket.on('user-leave', leave)
+        socket.on('user-state-change', stateChange)
     }
 
-    const call = (userId: string) => {
-        getUserList();
-        console.log(`${userId} joined`);
-        console.log(`Calling ${userId}`);
-        const call = peer.call(userId, localStream.current!);
+    const call = (user: any) => {
+        console.log(`${user.userName} joined`);
+        console.log(`Calling ${user.userName}`);
+        const call = peer.call(user.userId, localStream.current!);
         call.on('stream', stream => {
+            let _userList: Array<user>;
+            setUserList(userList => {
+                _userList = [...userList];
+                return userList;
+            });
+            let _user: user = {
+                userId: user.userId,
+                userName: user.userName,
+                stream: stream,
+                speaking: false,
+                muted: false,
+                deafen: false
+            }
+            _userList!.push(_user);
+            handleSpeakEvent(_user);
+            setUserList(_userList!);
             console.log(`call established`);
             stream.getAudioTracks().forEach(track => {
                 remoteStream.current.addTrack(track);
@@ -187,14 +208,77 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
     }
 
     const answer = (call: Peer.MediaConnection) => {
-        getUserList();
         console.log('call incoming');
         call.answer(localStream.current);
         call.on('stream', stream => {
             console.log("income call established");
+            setUserList(userList => {
+                for (let index in userList) {
+                    if (userList[index].userId === call.peer) {
+                        userList[index].stream = stream;
+                        handleSpeakEvent(userList[index]);
+                    }
+                }
+                return userList;
+            })
             stream.getAudioTracks().forEach(track => {
                 remoteStream.current.addTrack(track);
                 audioRef.current!.srcObject = remoteStream.current;
+            })
+        })
+    }
+
+    const leave = (user: user): void => {
+        console.log(`${user.userName} has leaved`);
+        let _userList: Array<user>;
+        setUserList(userList => {
+            _userList = userList;
+            return userList;
+        });
+        _userList = _userList!.filter((u: user) => u.userId !== user.userId);
+        setUserList(_userList);
+    }
+
+    const stateChange = (event: stateChange): void => {
+        setUserList(userList => {
+            let _userList = [...userList];
+            for (let index in _userList) {
+                if (_userList[index].userId === event.userId) {
+                    if (event.state.type === 'mute') {
+                        _userList[index].muted = event.state.flag;
+                    } else if (event.state.type === 'deafen') {
+                        _userList[index].deafen = event.state.flag;
+                    }
+                }
+            }
+            return _userList;
+        })
+    }
+
+    const handleSpeakEvent = (user: user) => {
+        let speakEvents = hark(user.stream!, {
+            threshold: -70
+        });
+        speakEvents.on('speaking', () => {
+            setUserList(userList => {
+                let _userList = [...userList];
+                for (let index in _userList) {
+                    if (_userList[index].userId === user.userId) {
+                        _userList[index].speaking = true;
+                    }
+                }
+                return _userList;
+            })
+        })
+        speakEvents.on('stopped_speaking', () => {
+            setUserList(userList => {
+                let _userList = [...userList];
+                for (let index in _userList) {
+                    if (_userList[index].userId === user.userId) {
+                        _userList[index].speaking = false;
+                    }
+                }
+                return _userList;
             })
         })
     }
@@ -207,7 +291,22 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
                 }
             }).then(res => {
                 if (res.data.status === 'success') {
-                    setUserList(res.data.content);
+                    let _userList = [];
+                    for (let user of res.data.content) {
+                        let _user: user = {
+                            userId: user.userId,
+                            userName: user.userName,
+                            stream: user.userId === userId ? localStream.current : null,
+                            speaking: false,
+                            muted: false,
+                            deafen: false
+                        }
+                        if (user.userId === userId) {
+                            handleSpeakEvent(_user);
+                        }
+                        _userList.push(_user);
+                    }
+                    setUserList(_userList);
                 } else {
                     enqueueSnackbar(res.data.content, {
                         variant: 'error',
@@ -224,26 +323,56 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
 
     const toggleLocalMute = () => {
         if (localStream.current) {
+            let flag: boolean;
             localStream.current.getAudioTracks().forEach(track => {
                 if (track.enabled) {
                     track.enabled = false;
-                    setLocalMuted(true);
+                    flag = true;
                 } else {
                     track.enabled = true;
-                    setLocalMuted(false);
+                    flag = false;
                 }
             });
+            setLocalMuted(flag!);
+            socket.emit('state-change', {
+                type: 'mute',
+                flag: flag!
+            })
+            setUserList(userList => {
+                let _userList = [...userList];
+                for (let index in _userList) {
+                    if (_userList[index].userId === userId) {
+                        _userList[index].muted = flag;
+                    }
+                }
+                return _userList;
+            })
         }
     }
 
     const toggleRemoteMute = () => {
+        let flag: boolean;
         if (remoteMuted) {
             audioRef.current!.muted = false;
-            setRemoteMuted(false);
+            flag = false;
         } else {
             audioRef.current!.muted = true;
-            setRemoteMuted(true);
+            flag = true;
         }
+        setRemoteMuted(flag);
+        socket.emit('state-change', {
+            type: 'deafen',
+            flag: flag
+        })
+        setUserList(userList => {
+            let _userList = [...userList];
+            for (let index in _userList) {
+                if (_userList[index].userId === userId) {
+                    _userList[index].deafen = flag;
+                }
+            }
+            return _userList;
+        })
     }
 
     return (

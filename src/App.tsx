@@ -1,6 +1,6 @@
 import React, { useContext, useState} from 'react';
 import './App.css';
-import {Avatar, Box, Button, Container, CssBaseline, Divider, List, ListItem, ListItemAvatar, ListItemText, Stack, TextField, ToggleButton, Tooltip, Typography} from "@mui/material";
+import {Avatar, Box, Button, Container, CssBaseline, Divider, List, ListItem, ListItemAvatar, ListItemText, Paper, Stack, TextField, ToggleButton, Tooltip, Typography} from "@mui/material";
 import {Add, Login, Mic, MicOff, Person, VolumeOff, VolumeUp} from "@mui/icons-material";
 import { socketContext } from './Context';
 import { useSnackbar } from 'notistack';
@@ -119,7 +119,7 @@ function App() {
                     {/* <Typography sx={{mb: 2}} variant="h4">
                         {roomId!.slice(0,3)} {roomId!.slice(3)}
                     </Typography> */}
-                    <Stack direction="row" spacing={1}>
+                    <Stack sx={{mb: 2}} direction="row" spacing={1}>
                         <ToggleButton value="local" color="error" selected={localMuted} onClick={toggleLocalMute}>
                             {localMuted? <MicOff /> : <Mic />}
                         </ToggleButton>
@@ -127,20 +127,27 @@ function App() {
                             {remoteMuted? <VolumeOff /> : <VolumeUp />}
                         </ToggleButton>
                     </Stack>
-                    <List>
-                        {
-                            userList!.map((user: any, index: any) => (
-                                <ListItem key={index}>
-                                    <ListItemAvatar>
-                                        <Avatar>
-                                            <Person />
-                                        </Avatar>
-                                    </ListItemAvatar>
-                                    <ListItemText primary={user.userName} />
-                                </ListItem>
-                            ))
-                        }
-                    </List>
+                    <Paper sx={{minWidth: 0.7}}>
+                        <List >
+                            {
+                                userList!.map((user: any, index: any) => (
+                                    <ListItem
+                                        sx={{...(user.speaking && {backgroundColor: '#E3E3E3'})}}
+                                        key={index}
+                                    >
+                                        <ListItemAvatar>
+                                            <Avatar>
+                                                <Person />
+                                            </Avatar>
+                                        </ListItemAvatar>
+                                        <ListItemText primary={user.userName} />
+                                        <MicOff sx={{...(!user.muted && {display: 'none'})}} />
+                                        <VolumeOff sx={{...(!user.deafen && {display: 'none'})}} />
+                                    </ListItem>
+                                ))
+                            }
+                        </List>
+                    </Paper>
                 </Box>
             </Container>
         );
