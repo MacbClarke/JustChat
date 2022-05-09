@@ -35,8 +35,9 @@ let socket = io(`${URL.WS}`, {
 });
 const peer = new Peer(userId, {
     host: `${process.env.REACT_APP_PEER_URL}`,
-    // port: 8848,
+    port:  parseInt(process.env.REACT_APP_PEER_PORT!),
     path: `${process.env.REACT_APP_PATH}/peer`,
+    secure: process.env.NODE_ENV === 'production',
     config: {
         'iceServers': [
             {
