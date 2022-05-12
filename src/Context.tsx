@@ -1,10 +1,12 @@
 import React, { ChangeEvent, createContext, EventHandler, PropsWithChildren, useRef, useState } from "react";
 import {io} from "socket.io-client";
-import Peer from "peerjs";
 import { v4 as uuidV4 } from 'uuid'
+import Peer from 'peerjs';
 import axios from "axios";
 import { useSnackbar } from 'notistack';
 import hark from 'hark';
+import { rejects } from "assert";
+
 
 interface user {
     userId: string;
@@ -41,9 +43,12 @@ const peer = new Peer(userId, {
     config: {
         'iceServers': [
             {
-                urls: process.env.REACT_APP_ICE_SERVER_URL!,
-                username: process.env.REACT_APP_ICE_SERVER_USERNAME,
-                credential: process.env.REACT_APP_ICE_SERVER_CREDENTIAL
+                urls: process.env.REACT_APP_STUN_SERVER_URL!
+            },
+            {
+                urls: process.env.REACT_APP_TURN_SERVER_URL!,
+                username: process.env.REACT_APP_TURN_SERVER_USERNAME,
+                credential: process.env.REACT_APP_TURN_SERVER_CREDENTIAL
             }
         ]
     }
@@ -114,10 +119,13 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
                         if (res.data.status === 'success') {
                             localStorage.setItem('userName', userName);
                             setRoomId(roomId);
-                            getUserList();
-                            setJoined(true);
-                            startListener();
-                            resolve();
+                            getUserList().then((data) => {
+                                setUserList(data);
+                                setJoined(true);
+                                startListener();
+                                socket.emit('answer-ready');
+                                resolve();
+                            });
                         } else {
                             enqueueSnackbar(res.data.content, {
                                 variant: 'error',
@@ -161,10 +169,12 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
                         if (res.data.status === 'success') {
                             localStorage.setItem('userName', userName);
                             setRoomId(res.data.content);
-                            getUserList();
-                            setJoined(true);
-                            startListener();
-                            resolve();
+                            getUserList().then((data) => {
+                                setUserList(data);
+                                setJoined(true);
+                                startListener();
+                                resolve();
+                            });
                         }
                     })
                 })
@@ -183,23 +193,21 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
         console.log(`${user.userName} joined`);
         console.log(`Calling ${user.userName}`);
         const call = peer.call(user.userId, localStream.current!);
-        call.on('stream', stream => {
-            let _userList: Array<user>;
+        call.on('stream', (stream: MediaStream) => {
             setUserList(userList => {
-                _userList = [...userList];
-                return userList;
+                let _userList = [...userList];
+                let _user: user = {
+                    userId: user.userId,
+                    userName: user.userName,
+                    stream: stream,
+                    speaking: false,
+                    muted: false,
+                    deafen: false
+                }
+                _userList.push(_user);
+                handleSpeakEvent(_user);
+                return _userList;
             });
-            let _user: user = {
-                userId: user.userId,
-                userName: user.userName,
-                stream: stream,
-                speaking: false,
-                muted: false,
-                deafen: false
-            }
-            _userList!.push(_user);
-            handleSpeakEvent(_user);
-            setUserList(_userList!);
             console.log(`call established`);
             stream.getAudioTracks().forEach(track => {
                 remoteStream.current.addTrack(track);
@@ -208,10 +216,10 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
         })
     }
 
-    const answer = (call: Peer.MediaConnection) => {
+    const answer = (call: any) => {
         console.log('call incoming');
         call.answer(localStream.current);
-        call.on('stream', stream => {
+        call.on('stream', (stream: MediaStream) => {
             console.log("income call established");
             setUserList(userList => {
                 for (let index in userList) {
@@ -231,13 +239,10 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
 
     const leave = (user: user): void => {
         console.log(`${user.userName} has leaved`);
-        let _userList: Array<user>;
         setUserList(userList => {
-            _userList = userList;
+            userList = userList!.filter((u: user) => u.userId !== user.userId);
             return userList;
         });
-        _userList = _userList!.filter((u: user) => u.userId !== user.userId);
-        setUserList(_userList);
     }
 
     const stateChange = (event: stateChange): void => {
@@ -284,41 +289,44 @@ export const ContextProvider = ({ children }: PropsWithChildren<{}>) => {
         })
     }
 
-    const getUserList = () => {
-        setRoomId(roomId => {
-            axios.get(`${URL.HTTP}/getUsers`, {
-                params: {
-                    roomId: roomId
-                }
-            }).then(res => {
-                if (res.data.status === 'success') {
-                    let _userList = [];
-                    for (let user of res.data.content) {
-                        let _user: user = {
-                            userId: user.userId,
-                            userName: user.userName,
-                            stream: user.userId === userId ? localStream.current : null,
-                            speaking: false,
-                            muted: false,
-                            deafen: false
-                        }
-                        if (user.userId === userId) {
-                            handleSpeakEvent(_user);
-                        }
-                        _userList.push(_user);
+    const getUserList = (): Promise<Array<user>> => {
+        return new Promise((resolve, reject) => {
+            setRoomId(roomId => {
+                axios.get(`${URL.HTTP}/getUsers`, {
+                    params: {
+                        roomId: roomId
                     }
-                    setUserList(_userList);
-                } else {
-                    enqueueSnackbar(res.data.content, {
-                        variant: 'error',
-                        anchorOrigin: {
-                            vertical: 'bottom',
-                            horizontal: 'center',
+                }).then(res => {
+                    if (res.data.status === 'success') {
+                        let _userList = [];
+                        for (let user of res.data.content) {
+                            let _user: user = {
+                                userId: user.userId,
+                                userName: user.userName,
+                                stream: user.userId === userId ? localStream.current : null,
+                                speaking: false,
+                                muted: false,
+                                deafen: false
+                            }
+                            if (user.userId === userId) {
+                                handleSpeakEvent(_user);
+                            }
+                            _userList.push(_user);
                         }
-                    });
-                }
+                        resolve(_userList);
+                    } else {
+                        enqueueSnackbar(res.data.content, {
+                            variant: 'error',
+                            anchorOrigin: {
+                                vertical: 'bottom',
+                                horizontal: 'center',
+                            }
+                        });
+                        reject();
+                    }
+                })
+                return roomId;
             })
-            return roomId;
         })
     }
 

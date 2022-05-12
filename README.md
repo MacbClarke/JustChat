@@ -4,7 +4,7 @@ A simple chat application based on React + WebRTC.
 
 You can choose to join room by id or create a new room.
 
-If create room is selected then a random room ID will be generated, give it to your firends and start chatting.
+If create room is selected then a random room ID will be generated, give it to your friends and start chatting.
 
 backend: [JustChat-backend](https://github.com/MacbClarke/JustChat-backend)
 
